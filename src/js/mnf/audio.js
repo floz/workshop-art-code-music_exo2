@@ -1,4 +1,4 @@
-import signals from "signals"
+import Signal from './Signal'
 
 const H_CANVAS = 200
 const MARGIN = 5
@@ -26,39 +26,46 @@ class Audio {
 		this.audioIndexStep = .06
 		this.isContrained = false
 		this.values = []
-		this.showPreview = false
+		this.showCanvas = true
 		this.easingAudioRangeValue = .48
 		for( let i = 0, n = this.audioRange; i < n; i++ ) {
 			this.values[ i ] = 0
 		}
+		
+		this.hasAudioTexture = false
 
-		this.onBeat = new signals()
+		this.onBeat = new Signal()
 		this.waveData = []
 		this.levelsData = []
 		this.volumeHistory = []
 
-		this.BEAT_HOLD_TIME = 90
+		this.BEAT_HOLD_TIME = 60
 		this.BEAT_DECAY_RATE = 0.98
 		this.BEAT_MIN = 0.12
 
+		this.globalVolume = 1
 		this.volume = 0
 		this.bpmTime = 0
 		this.msecsAvg = 633
 		this.globalVolume = 1
 		this.currentPlay = -1
+		this.fist = ''
 
 		this.levelsCount = 16
 		this.beatCutOff = 0
 		this.beatTime = 0
+		this.isPlaying = false
 
 		this.lastTime = performance.now()
 	}
 
-	start({ onLoad = null, live = true, showPreview = false, analyse = true, debug = false, playlist = ["audio/galvanize.mp3"], shutup = false } = {}) {
+	start({ onLoad = null, autoPlay=true, showCanvas = false, live = true, analyze = true, debug = false, playlist = ["audio/galvanize.mp3"], shutup = false } = {}) {
+
 		this.debug = debug
 		this.playlist = playlist
 		this.live = live
-		this.showPreview = showPreview
+		this.autoPlay = autoPlay
+		this.showCanvas = showCanvas
 
 		if (!live) {
 			if (!shutup) {
@@ -85,9 +92,26 @@ class Audio {
 			)
 		}
 
-		if (analyse) {
-			this.analyse()
+		if (analyze) {
+			this.analyze()
 		}
+	}
+
+	play = (time=0)=>{
+		if(this.isPlaying){
+			return
+		}
+		this.audio.play()
+		this.audio.currentTime = time
+		this.isPlaying = true
+	}
+
+	pause = ()=>{
+		if(!this.isPlaying){
+			return
+		}
+		this.audio.pause()
+		this.isPlaying = false
 	}
 
 	playNext = () => {
@@ -99,18 +123,19 @@ class Audio {
 		this.audio = document.createElement('audio')
 		this.audio.src = this.playlist[this.currentPlay]
 		this.audio.loop = false
-		this.audio.play()
-		this.audio.addEventListener('ended', this.playNext, false)
+		this.audio.addEventListener('ended', this.playNext)
 
 		if (this.audioSource) {
 			this.audioSource.disconnect(this.masterGain)
 		}
 		this.audioSource = this.context.createMediaElementSource(this.audio)
 		this.audioSource.connect(this.masterGain)
-
+		if(this.autoPlay){
+			this.play()
+		}			
 	}
 
-	analyse() {
+	analyze() {
 		this.analyser = this.context.createAnalyser()
 		this.analyser.smoothingTimeConstant = 0.3
 		this.analyser.fftSize = this.fftSize
@@ -120,7 +145,7 @@ class Audio {
 		this.timeByteData = new Uint8Array(this.binCount)
 		this.masterGain.connect(this.analyser)
 
-		if (this.showPreview) {
+		if (this.showCanvas) {
 			this.canvas = document.createElement("canvas")
 			this.canvas.width = this.audioRange * W_BAR + (this.audioRange - 1) * SPACE_BAR + MARGIN * 2
 			this.canvas.height = H_CANVAS + MARGIN*2 + H_BEAT_BAR + H_INFO_BAR
@@ -131,6 +156,7 @@ class Audio {
 			this.canvas.style.left = 0
 			document.body.append( this.canvas )
 		}
+
 
 		for (let i = 0; i < 256; i++) {
 			this.volumeHistory.push(0)
@@ -148,7 +174,7 @@ class Audio {
 		this.analyser.getByteFrequencyData(this.freqByteData)
 		this.analyser.getByteTimeDomainData(this.timeByteData)
 
-		if (this.showPreview) {
+		if (this.showCanvas) {
 			this.ctx.fillStyle = "#444444"
 			this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height)
 			this.ctx.beginPath()
@@ -169,7 +195,7 @@ class Audio {
 			let h = H_BAR * value
 			this.values[i] += ( value - this.values[ i ] ) * this.easingAudioRangeValue
 
-			if (this.showPreview) {
+			if (this.showCanvas) {
 				if (i == 2) {
 					this.ctx.fillStyle = "#00ff00"
 				} else {
@@ -187,7 +213,7 @@ class Audio {
 
 		for (let i = 0; i < this.binCount; i++) {
 			this.waveData[i] = ((this.timeByteData[i] - 128) / 128)
-		}	
+		}
 
 		this.volume = 0
 		for (let i = 0; i < this.levelsCount; i++) {
@@ -203,7 +229,7 @@ class Audio {
 			console.log('volume:', this.volume)
 		}
 
-		if(this.showPreview){
+		if(this.showCanvas){
 			this.ctx.beginPath();
 			this.ctx.rect(0, this.canvas.height-MARGIN-H_BEAT_BAR, x, H_BEAT_BAR);
 			this.ctx.fillStyle = 'red';
@@ -226,6 +252,10 @@ class Audio {
 			this.ctx.fill()
 			this.ctx.fillStyle = 'rgba(0,0,0,1)'
 			this.ctx.fillText("Volume:"+parseFloat(this.volume).toFixed(2),6,H_CANVAS + MARGIN*2)
+			let t = parseInt(this.audio.currentTime)
+			if(t<100){t="0"+t}
+			if(t<10){t="0"+t}
+			this.ctx.fillText(t+"s",x-32,H_CANVAS + MARGIN*2)
 
 		}
 		this.detectBeat(dt)
@@ -269,10 +299,12 @@ class Audio {
 		}
 	}
 
-	// advanced feature
 	addAudioRangeTexture( audioRangeTexture ) {
 		this.audioRangeTexture = audioRangeTexture
 	}
+
 }
 
-export default new Audio()
+const audio = new Audio()
+export default audio 
+export {audio}

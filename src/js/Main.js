@@ -2,7 +2,11 @@ const OrbitControls = require('three-orbit-controls')(THREE)
 
 import vsBasic from "shaders/basic.vs"
 import fsBasic from "shaders/basic.fs"
-import audio from "mnf/audio"
+
+import audio from "mnf/audio/audio"
+import AudioAnalyser from 'mnf/audio/AudioAnalyser'
+import AudioDebugger from 'mnf/audio/AudioDebugger'
+
 import ColorPass from "postprocess/ColorPass"
 import gui from 'mnf/gui'
 
@@ -31,10 +35,12 @@ class Main {
 		this.composer.setSize( window.innerWidth, window.innerHeight )
 		this.passes = []
 
+		// DAT.GUI : https://workshop.chromeexperiments.com/examples/gui/#1--Basic-Usage
 		const f = gui.addFolder('postprocess')
 		f.open()
 
-		//create a bloom pass
+		// WAGNER : https://github.com/spite/Wagner
+		// Create a Bloom Pass
 		this.bloomPass = new WAGNER.MultiPassBloomPass(128,128)
 		this.bloomPass.activate = true
 		// this.bloomPass.params.applyZoomBlur = true
@@ -44,10 +50,13 @@ class Main {
 		g.add(this.bloomPass.params,'zoomBlurStrength',0,1)
 		g.add(this.bloomPass.params,'blurAmount',0,1)
 		g.add(this.bloomPass.params,'applyZoomBlur')
-		//custom colorPass
+
+		// CUSTOM PASS! ColorPass
 		this.colorPass = new ColorPass()
 		this.colorPass.createGui(f)
 
+		// To remove the postprocessing, remove the passes
+		// No passes = no postprocessing activated
 		this.passes.push( this.bloomPass )
 		this.passes.push( this.colorPass )
 		
@@ -73,9 +82,17 @@ class Main {
 		this.phi = 0
 		this.radius = 150
 
-		// if you don't want to hear the music, but keep analysing it, set 'shutup' to 'true'!
-		audio.start( { live: false, shutup: true, showPreview: true } )
-		audio.onBeat.add( this.onBeat )
+		audio.start({  
+			live : false,
+			playlist : ["audio/galvanize.mp3"], 
+			mute : false,
+			onLoad : ()=>{
+				audio.analyser = new AudioAnalyser(audio)
+				audio.analyser.debugger = new AudioDebugger(audio.analyser)
+				audio.onBeat.add( this.onBeat ) 
+				this.animate()
+			}
+		} )
 
 		window.addEventListener( 'resize', this.onResize, false )
 		this.animate()
@@ -96,7 +113,7 @@ class Main {
 
 		this.meshBig.rotation.x += 0.005
 		this.meshBig.rotation.y += 0.01
-		// play with audio.volume
+		// Play with audio.volume
 		let scale = 1 + .025 * audio.volume
 		this.meshBig.scale.set( scale, scale, scale )
 
@@ -107,9 +124,7 @@ class Main {
 		this.theta += .01
 		this.phi += .05
 
-		// play with audio.values[ 2 ], the green bar of the preview
-		// There is 7 value (audio.values.length = 8)
-		scale = .1 + .05 * audio.values[ 2 ]
+		scale = .1 + .05 * audio.analyser.ranges[ 2 ].volume
 		this.meshSmall.scale.set( scale, scale, scale )
 		this.render()
 	}
